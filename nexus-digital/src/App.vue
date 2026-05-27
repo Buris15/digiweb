@@ -18,6 +18,13 @@ const sortBy = ref("default")
 const isContactOpen = ref(false)
 const toastState = ref({ show: false, message: "" })
 
+// --- SECURE TRANSFER STATE (WEB3FORMS) ---
+// Key initialized and active
+const WEB3FORMS_KEY = "97d9635f-bbb3-42b2-b3ab-5674a76406cf" 
+const isCheckoutModalOpen = ref(false)
+const isSubmitting = ref(false)
+const targetCheckoutAsset = ref(null)
+
 // --- TRUST ARCHITECTURE DATA ---
 const testimonials = ref([
   { id: 1, name: "Chloe M.", role: "Architecture Student", quote: "This Notion workspace literally saved my GPA this semester. The aesthetic is unmatched and the systems actually make sense.", rating: 5 },
@@ -50,9 +57,51 @@ const triggerNotification = (msg) => {
   setTimeout(() => { toastState.value.show = false }, 3000)
 }
 
-const dispatchAssetRoute = (product) => {
-  triggerNotification(`Opening secure route to ${product.platformName}...`)
-  window.open(product.platformUrl, '_blank')
+// Intercepts the buy action to open the manual payment modal
+const initiateManualCheckout = (product) => {
+  targetCheckoutAsset.value = product
+  isCheckoutModalOpen.value = true
+}
+
+// Executes the Web3Forms payload with enhanced logging
+const executeTransaction = async (event) => {
+  isSubmitting.value = true
+  
+  const formData = new FormData(event.target)
+  formData.append("access_key", WEB3FORMS_KEY)
+  formData.append("subject", `SYSTEM ALERT: Vault Purchase - ${targetCheckoutAsset.value.title}`)
+  formData.append("from_name", "Aesthetic Vault Automated Protocol")
+  
+  // Failsafe: Add a default message if required by the API
+  formData.append("message", `Manual transfer request initiated for ${targetCheckoutAsset.value.title}. Receipt attached.`)
+
+  try {
+    const response = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      body: formData
+    })
+    
+    const data = await response.json()
+    
+    // Diagnostic Logging
+    console.log("TRANSMISSION LOG:", data)
+    
+    if (data.success) {
+      triggerNotification("Payment verified in queue. Link will be dispatched shortly.")
+      isCheckoutModalOpen.value = false
+      targetCheckoutAsset.value = null
+      event.target.reset()
+    } else {
+      // Expose the actual API error to the user
+      triggerNotification(`System Error: ${data.message || 'Payload rejected.'}`)
+      console.error("REJECTION REASON:", data.message)
+    }
+  } catch (error) {
+    triggerNotification("Critical Error: Connection to mainframe lost.")
+    console.error("NETWORK ERROR:", error)
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 const toggleWishlist = (product) => {
@@ -157,7 +206,7 @@ const filteredProducts = computed(() => {
         <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 card-stagger-grid">
           <ProductCard v-for="prod in filteredProducts" :key="prod.id" :product="prod" :fxRate="fxRate" 
             :isWishlisted="isWishlisted(prod)"
-            @toggleWishlist="toggleWishlist" @buy="dispatchAssetRoute" @quickView="selectedProduct = $event" 
+            @toggleWishlist="toggleWishlist" @buy="initiateManualCheckout" @quickView="selectedProduct = $event" 
             class="glass-panel glass-panel-hover overflow-hidden" />
         </section>
         
@@ -230,6 +279,42 @@ const filteredProducts = computed(() => {
       </main>
 
       <Transition name="modal-zoom">
+        <div v-if="isCheckoutModalOpen" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div class="glass-panel w-full max-w-md !rounded-[2rem] p-8 relative shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+            <button @click="isCheckoutModalOpen = false" class="cursor-pointer absolute top-5 right-5 text-[var(--text-muted)] hover:text-white rounded-full w-8 h-8 flex items-center justify-center transition-all active:scale-90 border-none bg-transparent">
+              <i class="fa-solid fa-xmark text-sm"></i>
+            </button>
+            
+            <div class="w-12 h-12 rounded-xl theme-accent-bg border border-[var(--accent-core)] flex items-center justify-center text-white mb-5 shadow-[0_0_15px_var(--accent-glow)]">
+              <i class="fa-solid fa-money-bill-transfer text-lg"></i>
+            </div>
+            
+            <h3 class="text-xl font-black text-white mb-1 tracking-tight">Manual Secure Transfer</h3>
+            <p class="text-sm text-[var(--text-muted)] font-medium mb-6">
+              Asset: <span class="text-white">{{ targetCheckoutAsset?.title }}</span><br/>
+              Total: <span class="theme-accent-text font-black tracking-wide">${{ targetCheckoutAsset?.price.toFixed(2) }}</span>
+            </p>
+            
+            <form @submit.prevent="executeTransaction" class="space-y-4">
+              <input name="name" required type="text" placeholder="Identity Vector (Full Name)" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold" />
+              
+              <input name="email" required type="email" placeholder="Network Terminal (Email Address)" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold" />
+              
+              <div class="bg-black/20 border border-white/10 rounded-xl p-4 transition-all focus-within:border-[var(--accent-core)]">
+                <label class="block text-[10px] font-black text-white uppercase tracking-widest mb-2 opacity-80">Upload Transfer Receipt</label>
+                <input name="attachment" required type="file" accept="image/*" class="w-full text-sm text-[var(--text-muted)] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-black file:uppercase file:tracking-wider file:theme-accent-bg file:text-white hover:file:opacity-80 transition-all cursor-pointer" />
+              </div>
+
+              <button type="submit" :disabled="isSubmitting" class="cursor-pointer w-full py-4 rounded-xl theme-accent-bg text-white font-black text-xs tracking-widest uppercase shadow-[0_0_20px_var(--accent-glow)] hover:-translate-y-0.5 transition-all active:scale-[0.98] border-none mt-4 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <i v-if="isSubmitting" class="fa-solid fa-circle-notch fa-spin"></i>
+                {{ isSubmitting ? 'Transmitting...' : 'Confirm Transfer & Secure Asset' }}
+              </button>
+            </form>
+          </div>
+        </div>
+      </Transition>
+
+      <Transition name="modal-zoom">
         <div v-if="selectedProduct" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 md:p-6" @click.self="selectedProduct = null">
           <div class="glass-panel !rounded-[2rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col md:flex-row relative transition-all duration-500">
             
@@ -263,9 +348,9 @@ const filteredProducts = computed(() => {
               <div class="mt-auto pt-6 border-t border-white/10 flex items-center justify-between">
                 <div>
                   <div class="text-3xl font-black text-white tracking-tight">${{ selectedProduct.price.toFixed(2) }}</div>
-                  <div class="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mt-1">Via: {{ selectedProduct.platformName }}</div>
+                  <div class="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mt-1">Manual Transfer</div>
                 </div>
-                <button @click="dispatchAssetRoute(selectedProduct)" class="px-8 py-4 rounded-xl theme-accent-bg text-white font-black text-sm tracking-wide shadow-[0_0_20px_var(--accent-glow)] hover:-translate-y-0.5 active:scale-[0.97] transition-all duration-300 cursor-pointer border-none flex items-center gap-2">
+                <button @click="initiateManualCheckout(selectedProduct)" class="px-8 py-4 rounded-xl theme-accent-bg text-white font-black text-sm tracking-wide shadow-[0_0_20px_var(--accent-glow)] hover:-translate-y-0.5 active:scale-[0.97] transition-all duration-300 cursor-pointer border-none flex items-center gap-2">
                   <i class="fa-solid fa-arrow-up-right-from-square text-xs"></i> Secure Access
                 </button>
               </div>
@@ -300,7 +385,7 @@ const filteredProducts = computed(() => {
                 </div>
                 <div class="flex justify-between items-center mt-2">
                   <button @click="toggleWishlist(item)" class="text-[10px] font-black text-red-400 hover:text-red-300 cursor-pointer tracking-wider uppercase border-none bg-transparent p-0">Purge</button>
-                  <button @click="dispatchAssetRoute(item)" class="text-[10px] font-black theme-accent-text uppercase cursor-pointer tracking-wider flex items-center gap-1 hover:translate-x-1 transition-transform border-none bg-transparent p-0">Deploy <i class="fa-solid fa-angle-right"></i></button>
+                  <button @click="initiateManualCheckout(item)" class="text-[10px] font-black theme-accent-text uppercase cursor-pointer tracking-wider flex items-center gap-1 hover:translate-x-1 transition-transform border-none bg-transparent p-0">Deploy <i class="fa-solid fa-angle-right"></i></button>
                 </div>
               </div>
             </div>
