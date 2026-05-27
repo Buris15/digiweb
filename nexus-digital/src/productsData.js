@@ -163,7 +163,7 @@ export const initialProducts = [
 
 export const initialSocialLinks = {
   gumroad: "https://gumroad.com/burisdigi",
-  raketph: "https://raket.ph/burisdigi2007",
+  raketph: "https://www.raket.ph/burisdigi2007",
   kofi: "https://ko-fi.com/buris15",
   tiktok: "https://tiktok.com/@your-username",
   facebook: "https://www.facebook.com/adrian.lacsamana.2025"
