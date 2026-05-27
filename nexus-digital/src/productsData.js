@@ -166,7 +166,7 @@ export const initialSocialLinks = {
   raketph: "https://raket.ph/burisdigi2007",
   kofi: "https://ko-fi.com/buris15",
   tiktok: "https://tiktok.com/@your-username",
-  facebook: "https://facebook.com/your-page"
+  facebook: "https://www.facebook.com/adrian.lacsamana.2025"
 };
 
 export const studentTestimonials = [
