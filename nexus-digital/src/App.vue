@@ -18,9 +18,10 @@ const sortBy = ref("default")
 const isContactOpen = ref(false)
 const toastState = ref({ show: false, message: "" })
 
-// --- SECURE TRANSFER STATE (WEB3FORMS) ---
-// Key initialized and active
+// --- SECURE TRANSFER STATE (WEB3FORMS + IMGBB) ---
 const WEB3FORMS_KEY = "97d9635f-bbb3-42b2-b3ab-5674a76406cf" 
+const IMGBB_API_KEY = "82aeed05375dfb93a39a58bbe0ed0f0c"
+
 const isCheckoutModalOpen = ref(false)
 const isSubmitting = ref(false)
 const targetCheckoutAsset = ref(null)
@@ -57,48 +58,75 @@ const triggerNotification = (msg) => {
   setTimeout(() => { toastState.value.show = false }, 3000)
 }
 
-// Intercepts the buy action to open the manual payment modal
 const initiateManualCheckout = (product) => {
   targetCheckoutAsset.value = product
   isCheckoutModalOpen.value = true
 }
 
-// Executes the Web3Forms payload with enhanced logging
+// THE INVISIBLE BRIDGE: Handles File Upload -> Web3Forms Submission
 const executeTransaction = async (event) => {
   isSubmitting.value = true
+  const form = event.target
   
-  const formData = new FormData(event.target)
-  formData.append("access_key", WEB3FORMS_KEY)
-  formData.append("subject", `SYSTEM ALERT: Vault Purchase - ${targetCheckoutAsset.value.title}`)
-  formData.append("from_name", "Aesthetic Vault Automated Protocol")
-  
-  // Failsafe: Add a default message if required by the API
-  formData.append("message", `Manual transfer request initiated for ${targetCheckoutAsset.value.title}. Receipt attached.`)
+  // 1. Grab the inputs
+  const nameInput = form.name.value
+  const emailInput = form.email.value
+  const fileInput = form.attachment.files[0]
+
+  if (!fileInput) {
+    triggerNotification("System Error: Receipt image required.")
+    isSubmitting.value = false
+    return
+  }
 
   try {
-    const response = await fetch("https://api.web3forms.com/submit", {
+    // STEP 1: Upload Image to ImgBB invisibly
+    triggerNotification("Encrypting receipt data...")
+    const imgData = new FormData()
+    imgData.append("image", fileInput)
+
+    const imgResponse = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
       method: "POST",
-      body: formData
+      body: imgData
     })
     
-    const data = await response.json()
+    const imgResult = await imgResponse.json()
     
-    // Diagnostic Logging
-    console.log("TRANSMISSION LOG:", data)
+    if (!imgResult.success) {
+      throw new Error("Image hosting rejected.")
+    }
     
-    if (data.success) {
-      triggerNotification("Payment verified in queue. Link will be dispatched shortly.")
+    const receiptUrl = imgResult.data.url
+
+    // STEP 2: Send clean text data to Web3Forms
+    triggerNotification("Dispatching payload to mainframe...")
+    const web3FormData = new FormData()
+    web3FormData.append("access_key", WEB3FORMS_KEY)
+    web3FormData.append("subject", `SYSTEM ALERT: Vault Purchase - ${targetCheckoutAsset.value.title}`)
+    web3FormData.append("from_name", "Aesthetic Vault Store")
+    web3FormData.append("Buyer_Name", nameInput)
+    web3FormData.append("Buyer_Email", emailInput)
+    web3FormData.append("Requested_Asset", targetCheckoutAsset.value.title)
+    web3FormData.append("Receipt_Screenshot", receiptUrl) // Sends URL instead of the file!
+
+    const web3Response = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      body: web3FormData
+    })
+    
+    const web3Result = await web3Response.json()
+    
+    if (web3Result.success) {
+      triggerNotification("Transfer verified. Access link will be dispatched shortly.")
       isCheckoutModalOpen.value = false
       targetCheckoutAsset.value = null
-      event.target.reset()
+      form.reset()
     } else {
-      // Expose the actual API error to the user
-      triggerNotification(`System Error: ${data.message || 'Payload rejected.'}`)
-      console.error("REJECTION REASON:", data.message)
+      triggerNotification("System Error: Form rejected.")
     }
   } catch (error) {
-    triggerNotification("Critical Error: Connection to mainframe lost.")
-    console.error("NETWORK ERROR:", error)
+    console.error(error)
+    triggerNotification("Critical Error: Connection lost.")
   } finally {
     isSubmitting.value = false
   }
@@ -302,7 +330,7 @@ const filteredProducts = computed(() => {
               
               <div class="bg-black/20 border border-white/10 rounded-xl p-4 transition-all focus-within:border-[var(--accent-core)]">
                 <label class="block text-[10px] font-black text-white uppercase tracking-widest mb-2 opacity-80">Upload Transfer Receipt</label>
-                <input name="attachment" required type="file" accept="image/*" class="w-full text-sm text-[var(--text-muted)] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-black file:uppercase file:tracking-wider file:theme-accent-bg file:text-white hover:file:opacity-80 transition-all cursor-pointer" />
+                <input name="attachment" required type="file" accept="image/png, image/jpeg, image/jpg" class="w-full text-sm text-[var(--text-muted)] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-black file:uppercase file:tracking-wider file:theme-accent-bg file:text-white hover:file:opacity-80 transition-all cursor-pointer" />
               </div>
 
               <button type="submit" :disabled="isSubmitting" class="cursor-pointer w-full py-4 rounded-xl theme-accent-bg text-white font-black text-xs tracking-widest uppercase shadow-[0_0_20px_var(--accent-glow)] hover:-translate-y-0.5 transition-all active:scale-[0.98] border-none mt-4 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
@@ -396,26 +424,6 @@ const filteredProducts = computed(() => {
         <div v-if="isWishlistSidebarOpen" @click="isWishlistSidebarOpen = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"></div>
       </Transition>
 
-      <Transition name="modal-zoom">
-        <div v-if="isContactOpen" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div class="glass-panel w-full max-w-md !rounded-[2rem] p-8 relative">
-            <button @click="isContactOpen = false" class="cursor-pointer absolute top-5 right-5 text-[var(--text-muted)] hover:text-white rounded-full w-8 h-8 flex items-center justify-center transition-all active:scale-90 border-none bg-transparent"><i class="fa-solid fa-xmark text-sm"></i></button>
-            <div class="w-12 h-12 rounded-xl bg-[var(--accent-glow)] border border-[var(--accent-core)] flex items-center justify-center text-[var(--accent-core)] mb-5">
-              <i class="fa-solid fa-satellite-dish text-lg"></i>
-            </div>
-            <h3 class="text-xl font-black text-white mb-1 tracking-tight">Open Link Support</h3>
-            <p class="text-sm text-[var(--text-muted)] font-medium mb-6">Encountering vector download issues? Connect directly.</p>
-            
-            <form @submit.prevent="isContactOpen = false; triggerNotification('Signal dispatched successfully.')" class="space-y-4">
-              <input required type="text" placeholder="Identity Vector (Name)" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold" />
-              <input required type="email" placeholder="Network Terminal (Email)" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold" />
-              <textarea required rows="3" placeholder="Transmission Payload (Message)..." class="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] resize-none placeholder:text-[var(--text-muted)] transition-all font-semibold"></textarea>
-              <button type="submit" class="cursor-pointer w-full py-4 rounded-xl theme-accent-bg text-white font-black text-xs tracking-widest uppercase shadow-[0_0_20px_var(--accent-glow)] hover:-translate-y-0.5 transition-all active:scale-[0.98] border-none mt-2">Dispatch Payload</button>
-            </form>
-          </div>
-        </div>
-      </Transition>
-
       <div class="px-4 md:px-6 pb-6">
         <footer class="glass-panel !rounded-[3rem] py-16 px-6 mt-20 max-w-7xl mx-auto">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-12 text-[var(--text-muted)]">
@@ -438,8 +446,8 @@ const filteredProducts = computed(() => {
 
             <div>
               <h4 class="text-[10px] font-black uppercase text-white tracking-widest mb-5 opacity-80">Signals Protocol</h4>
-              <button @click="isContactOpen = true" class="text-sm font-bold hover:text-white transition-all cursor-pointer flex items-center gap-2 glass-button px-4 py-2.5">
-                <i class="fa-solid fa-paper-plane text-xs theme-accent-text"></i> Establish Support Link
+              <button class="text-sm font-bold text-[var(--text-muted)] flex items-center gap-2 px-4 py-2.5">
+                <i class="fa-solid fa-shield-halved text-xs"></i> Secure Protocols Active
               </button>
               <div class="mt-5 flex gap-3">
                 <a :href="channels.facebook" target="_blank" class="w-10 h-10 glass-button flex items-center justify-center hover:border-blue-500 hover:text-blue-400 transition-all duration-300"><i class="fa-brands fa-facebook text-lg"></i></a>
@@ -457,45 +465,22 @@ const filteredProducts = computed(() => {
 </template>
 
 <style>
-/* Vue-Specific Animations only. Global CSS is handled in your style.css */
-
-.complex-fade-in {
-  animation: compileIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes compileIn {
-  from { opacity: 0; transform: translateY(15px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.card-stagger-grid > * {
-  opacity: 0;
-  animation: compileIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
+.complex-fade-in { animation: compileIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+@keyframes compileIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+.card-stagger-grid > * { opacity: 0; animation: compileIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 .card-stagger-grid > *:nth-child(1) { animation-delay: 100ms; }
 .card-stagger-grid > *:nth-child(2) { animation-delay: 150ms; }
 .card-stagger-grid > *:nth-child(3) { animation-delay: 200ms; }
 .card-stagger-grid > *:nth-child(4) { animation-delay: 250ms; }
-
-.text-reveal {
-  animation: spread 1.2s cubic-bezier(0.16, 1, 0.3, 1) cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
+.text-reveal { animation: spread 1.2s cubic-bezier(0.16, 1, 0.3, 1) cubic-bezier(0.25, 0.46, 0.45, 0.94); }
 .modal-zoom-enter-active { transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .modal-zoom-leave-active { transition: all 0.25s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
 .modal-zoom-enter-from { opacity: 0; transform: scale(0.94); }
 .modal-zoom-leave-to { opacity: 0; transform: scale(0.97); }
-
 .sidebar-slide-enter-active, .sidebar-slide-leave-active { transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
 .sidebar-slide-enter-from, .sidebar-slide-leave-to { transform: translateX(100%); }
-
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-
 .animate-ping-once { animation: heartPing 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) 1; }
-@keyframes heartPing {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.3); }
-  100% { transform: scale(1); }
-}
+@keyframes heartPing { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }
 </style>
