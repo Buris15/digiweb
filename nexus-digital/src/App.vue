@@ -10,6 +10,7 @@ const channels = ref(initialSocialLinks)
 const fxRate = 58.4 
 
 const wishlist = ref([])
+const selectedWishlistIds = ref([]) // TRACKS SELECTED ITEM IDs
 const isWishlistSidebarOpen = ref(false)
 const selectedProduct = ref(null)
 const searchQuery = ref("")
@@ -24,7 +25,25 @@ const IMGBB_API_KEY = "82aeed05375dfb93a39a58bbe0ed0f0c"
 
 const isCheckoutModalOpen = ref(false)
 const isSubmitting = ref(false)
-const targetCheckoutAsset = ref(null)
+const checkoutItems = ref([]) // STORES THE BUNDLE TO BE PURCHASED
+
+// --- BUNDLE CALCULATORS & MUTATIONS ---
+const isAllSelected = computed({
+  get: () => wishlist.value.length > 0 && selectedWishlistIds.value.length === wishlist.value.length,
+  set: (val) => {
+    selectedWishlistIds.value = val ? wishlist.value.map(p => p.id) : []
+  }
+})
+
+const selectedWishlistTotal = computed(() => {
+  return wishlist.value
+    .filter(item => selectedWishlistIds.value.includes(item.id))
+    .reduce((sum, item) => sum + item.price, 0)
+})
+
+const totalCheckoutPrice = computed(() => {
+  return checkoutItems.value.reduce((sum, item) => sum + item.price, 0)
+})
 
 // --- TRUST ARCHITECTURE DATA ---
 const testimonials = ref([
@@ -59,7 +78,17 @@ const triggerNotification = (msg) => {
 }
 
 const initiateManualCheckout = (product) => {
-  targetCheckoutAsset.value = product
+  checkoutItems.value = [product]
+  isCheckoutModalOpen.value = true
+}
+
+const initiateBatchCheckout = () => {
+  const selected = wishlist.value.filter(item => selectedWishlistIds.value.includes(item.id))
+  if (selected.length === 0) {
+    triggerNotification("System Error: Select item channels first.")
+    return
+  }
+  checkoutItems.value = selected
   isCheckoutModalOpen.value = true
 }
 
@@ -68,7 +97,6 @@ const executeTransaction = async (event) => {
   isSubmitting.value = true
   const form = event.target
   
-  // 1. Grab the inputs
   const nameInput = form.name.value
   const emailInput = form.email.value
   const fileInput = form.attachment.files[0]
@@ -80,7 +108,6 @@ const executeTransaction = async (event) => {
   }
 
   try {
-    // STEP 1: Upload Image to ImgBB invisibly
     triggerNotification("Encrypting receipt data...")
     const imgData = new FormData()
     imgData.append("image", fileInput)
@@ -91,23 +118,25 @@ const executeTransaction = async (event) => {
     })
     
     const imgResult = await imgResponse.json()
-    
-    if (!imgResult.success) {
-      throw new Error("Image hosting rejected.")
-    }
+    if (!imgResult.success) throw new Error("Image hosting rejected.")
     
     const receiptUrl = imgResult.data.url
 
-    // STEP 2: Send clean text data to Web3Forms
     triggerNotification("Dispatching payload to mainframe...")
+    
+    // COMPILING BUNDLE STRINGS FOR THE EMAIL NOTIFICATION
+    const manifestTitles = checkoutItems.value.map(item => `${item.title} ($${item.price.toFixed(2)})`).join(', ')
+    const aggregatePriceText = `$${totalCheckoutPrice.value.toFixed(2)}`
+
     const web3FormData = new FormData()
     web3FormData.append("access_key", WEB3FORMS_KEY)
-    web3FormData.append("subject", `SYSTEM ALERT: Vault Purchase - ${targetCheckoutAsset.value.title}`)
+    web3FormData.append("subject", `SYSTEM ALERT: Vault Purchase - ${checkoutItems.value.length} Frameworks`)
     web3FormData.append("from_name", "Aesthetic Vault Store")
     web3FormData.append("Buyer_Name", nameInput)
     web3FormData.append("Buyer_Email", emailInput)
-    web3FormData.append("Requested_Asset", targetCheckoutAsset.value.title)
-    web3FormData.append("Receipt_Screenshot", receiptUrl) // Sends URL instead of the file!
+    web3FormData.append("Requested_Asset", manifestTitles) // Populates email payload with detailed list
+    web3FormData.append("Total_Price_Logged", aggregatePriceText) // Adds price parameters directly inside the email log
+    web3FormData.append("Receipt_Screenshot", receiptUrl)
 
     const web3Response = await fetch("https://api.web3forms.com/submit", {
       method: "POST",
@@ -118,8 +147,14 @@ const executeTransaction = async (event) => {
     
     if (web3Result.success) {
       triggerNotification("Transfer verified. Access link will be dispatched shortly.")
+      
+      // PURGE BUNDLED ITEMS FROM THE POOL POST-PURCHASE
+      const purchasedIds = checkoutItems.value.map(item => item.id)
+      wishlist.value = wishlist.value.filter(item => !purchasedIds.includes(item.id))
+      selectedWishlistIds.value = selectedWishlistIds.value.filter(id => !purchasedIds.includes(id))
+
       isCheckoutModalOpen.value = false
-      targetCheckoutAsset.value = null
+      checkoutItems.value = []
       form.reset()
     } else {
       triggerNotification("System Error: Form rejected.")
@@ -136,9 +171,11 @@ const toggleWishlist = (product) => {
   const index = wishlist.value.findIndex(p => p.id === product.id)
   if (index === -1) {
     wishlist.value.push(product)
+    selectedWishlistIds.value.push(product.id) // Default auto-selection upon entry
     triggerNotification(`Saved to your digital vault.`)
   } else {
     wishlist.value.splice(index, 1)
+    selectedWishlistIds.value = selectedWishlistIds.value.filter(id => id !== product.id)
     triggerNotification(`Removed from your digital vault.`)
   }
 }
@@ -161,11 +198,9 @@ const filteredProducts = computed(() => {
 
 <template>
   <div class="min-h-screen relative pb-10 font-sans">
-    
     <div class="animated-bg"></div>
 
     <div class="relative z-10 complex-fade-in">
-      
       <div class="px-4 md:px-6 pt-4">
         <header class="sticky top-4 z-40 max-w-7xl mx-auto glass-panel !rounded-[2rem] px-6 py-4 flex justify-between items-center">
           <div class="flex items-center gap-3 group cursor-pointer">
@@ -193,7 +228,6 @@ const filteredProducts = computed(() => {
       </div>
 
       <main class="max-w-7xl mx-auto px-6 mt-12">
-        
         <section class="glass-panel !rounded-[2rem] p-8 md:p-12 lg:p-16 mb-16 relative overflow-hidden group">
           <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-10 relative z-10">
             <div class="max-w-2xl text-reveal">
@@ -252,13 +286,10 @@ const filteredProducts = computed(() => {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div v-for="review in testimonials" :key="review.id" class="glass-panel glass-panel-hover p-8 group relative cursor-default">
               <i class="fa-solid fa-quote-right absolute top-6 right-6 text-4xl text-white/5 group-hover:text-[var(--accent-core)] transition-colors duration-500"></i>
-              
               <div class="flex gap-1 mb-6">
                 <i v-for="n in review.rating" :key="n" class="fa-solid fa-star text-amber-400 text-xs drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]"></i>
               </div>
-              
               <p class="text-[var(--text-primary)] text-sm leading-relaxed mb-8 font-medium italic relative z-10">"{{ review.quote }}"</p>
-              
               <div class="flex items-center gap-4 border-t border-white/10 pt-5">
                 <div class="w-10 h-10 rounded-full bg-black/50 border border-white/10 flex items-center justify-center text-white font-black text-xs shadow-inner">
                   {{ review.name.charAt(0) }}
@@ -279,20 +310,15 @@ const filteredProducts = computed(() => {
           </div>
 
           <div class="space-y-4">
-            <div v-for="faq in faqs" :key="faq.id" 
-                 class="glass-panel overflow-hidden transition-all duration-500"
-                 :class="activeFaq === faq.id ? 'border-[var(--accent-core)]/50 shadow-[0_0_30px_var(--accent-glow)]' : ''">
-              
+            <div v-for="faq in faqs" :key="faq.id" class="glass-panel overflow-hidden transition-all duration-500" :class="activeFaq === faq.id ? 'border-[var(--accent-core)]/50 shadow-[0_0_30px_var(--accent-glow)]' : ''">
               <button @click="toggleFaq(faq.id)" class="w-full text-left px-6 py-5 flex items-center justify-between cursor-pointer focus:outline-none group border-none shadow-none">
                 <span class="text-sm font-bold text-white group-hover:text-[var(--accent-core)] transition-colors pr-8">
                   {{ faq.question }}
                 </span>
                 <div class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 group-hover:border-[var(--accent-core)] transition-all">
-                  <i class="fa-solid fa-chevron-down text-[var(--text-muted)] transition-transform duration-500"
-                     :class="activeFaq === faq.id ? 'rotate-180 theme-accent-text' : ''"></i>
+                  <i class="fa-solid fa-chevron-down text-[var(--text-muted)] transition-transform duration-500" :class="activeFaq === faq.id ? 'rotate-180 theme-accent-text' : ''"></i>
                 </div>
               </button>
-
               <div class="grid transition-all duration-500 ease-in-out" :style="{ gridTemplateRows: activeFaq === faq.id ? '1fr' : '0fr' }">
                 <div class="overflow-hidden">
                   <p class="px-6 pb-6 text-sm text-[var(--text-muted)] font-medium leading-relaxed border-t border-white/10 pt-4 mt-2">
@@ -303,7 +329,6 @@ const filteredProducts = computed(() => {
             </div>
           </div>
         </section>
-
       </main>
 
       <Transition name="modal-zoom">
@@ -317,15 +342,22 @@ const filteredProducts = computed(() => {
               <i class="fa-solid fa-money-bill-transfer text-lg"></i>
             </div>
             
-            <h3 class="text-xl font-black text-white mb-1 tracking-tight">Manual Secure Transfer</h3>
-            <p class="text-sm text-[var(--text-muted)] font-medium mb-6">
-              Asset: <span class="text-white">{{ targetCheckoutAsset?.title }}</span><br/>
-              Total: <span class="theme-accent-text font-black tracking-wide">${{ targetCheckoutAsset?.price.toFixed(2) }}</span>
-            </p>
+            <h3 class="text-xl font-black text-white mb-2 tracking-tight">Manual Secure Transfer</h3>
+            
+            <div class="text-xs text-[var(--text-muted)] bg-black/30 border border-white/10 rounded-xl p-4 max-h-36 overflow-y-auto mb-6 space-y-1.5">
+              <div class="text-[9px] font-black tracking-widest text-white uppercase opacity-50 mb-1">Items Terminal</div>
+              <div v-for="item in checkoutItems" :key="item.id" class="flex justify-between border-b border-white/5 pb-1 text-white">
+                <span class="truncate max-w-[240px] font-medium">• {{ item.title }}</span>
+                <span class="font-bold text-[var(--accent-core)]">${{ item.price.toFixed(2) }}</span>
+              </div>
+              <div class="flex justify-between text-xs pt-2 font-black text-white border-t border-white/10">
+                <span>Aggregate Total:</span>
+                <span class="theme-accent-text">${{ totalCheckoutPrice.toFixed(2) }}</span>
+              </div>
+            </div>
             
             <form @submit.prevent="executeTransaction" class="space-y-4">
               <input name="name" required type="text" placeholder="Identity Vector (Full Name)" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold" />
-              
               <input name="email" required type="email" placeholder="Network Terminal (Email Address)" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold" />
               
               <div class="bg-black/20 border border-white/10 rounded-xl p-4 transition-all focus-within:border-[var(--accent-core)]">
@@ -345,7 +377,6 @@ const filteredProducts = computed(() => {
       <Transition name="modal-zoom">
         <div v-if="selectedProduct" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 md:p-6" @click.self="selectedProduct = null">
           <div class="glass-panel !rounded-[2rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col md:flex-row relative transition-all duration-500">
-            
             <button @click="selectedProduct = null" class="absolute top-5 right-5 z-20 w-10 h-10 flex items-center justify-center rounded-full glass-button text-white/70 hover:text-white transition-all duration-300 cursor-pointer shadow-xl active:scale-90">
               <i class="fa-solid fa-xmark text-lg"></i>
             </button>
@@ -354,7 +385,7 @@ const filteredProducts = computed(() => {
               <img :src="selectedProduct.image" class="w-full h-full object-cover opacity-80 scale-105 hover:scale-100 transition-transform duration-700 mix-blend-lighten" />
               <div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
               <button @click="toggleWishlist(selectedProduct)" class="absolute top-5 left-5 w-11 h-11 rounded-full glass-button shadow-2xl flex items-center justify-center text-white/70 hover:text-red-400 transition-all duration-300 cursor-pointer active:scale-90">
-                <i :class="isWishlisted(selectedProduct) ? 'fa-solid fa-heart text-red-500 text-xl animate-ping-once' : 'fa-regular fa-heart text-xl'"></i>
+                <i :class="isWishlisted(selectedProduct) ? 'fa-solid fa-heart text-red-500 text-xl' : 'fa-regular fa-heart text-xl'"></i>
               </button>
             </div>
             
@@ -362,7 +393,6 @@ const filteredProducts = computed(() => {
               <div class="flex items-center gap-2.5 mb-4">
                 <span class="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-widest bg-black/50 px-2.5 py-1 rounded-md border border-white/10"><i :class="selectedProduct.icon" class="mr-1.5 theme-accent-text"></i>{{ selectedProduct.category }}</span>
               </div>
-              
               <h2 class="text-3xl font-black text-white mb-4 tracking-tight leading-tight">{{ selectedProduct.title }}</h2>
               <p class="text-sm text-[var(--text-muted)] mb-8 leading-relaxed font-medium">{{ selectedProduct.description }}</p>
               
@@ -396,30 +426,53 @@ const filteredProducts = computed(() => {
             <button @click="isWishlistSidebarOpen = false" class="w-9 h-9 rounded-full glass-button text-[var(--text-muted)] hover:text-white flex items-center justify-center cursor-pointer transition-all active:scale-90"><i class="fa-solid fa-xmark"></i></button>
           </div>
 
+          <div v-if="wishlist.length > 0" class="mx-6 mt-4 flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+            <label class="flex items-center gap-3 cursor-pointer text-xs font-bold text-white select-none">
+              <input type="checkbox" v-model="isAllSelected" class="w-4 h-4 rounded border-white/20 bg-black/40 text-[var(--accent-core)] checked:bg-[var(--accent-core)] focus:ring-0 cursor-pointer" />
+              Select All Assets
+            </label>
+            <span class="text-[10px] text-[var(--text-muted)] font-black tracking-widest uppercase">
+              {{ selectedWishlistIds.length }} / {{ wishlist.length }} Selected
+            </span>
+          </div>
+
           <div class="flex-grow overflow-y-auto p-6 flex flex-col gap-4">
             <div v-if="wishlist.length === 0" class="text-center py-32 text-[var(--text-muted)]">
               <i class="fa-solid fa-box-open text-3xl mb-4 opacity-30 animate-pulse"></i>
               <p class="font-bold text-sm tracking-tight">Vault memory banks are empty.</p>
             </div>
             
-            <div v-for="item in wishlist" :key="item.id" class="glass-panel glass-panel-hover flex gap-4 p-3.5 group">
-              <div class="w-20 h-20 rounded-xl overflow-hidden bg-black flex-shrink-0 border border-white/10">
+            <div v-for="item in wishlist" :key="item.id" class="glass-panel glass-panel-hover flex gap-4 p-3.5 group items-center">
+              <input type="checkbox" :value="item.id" v-model="selectedWishlistIds" class="w-4 h-4 rounded border-white/20 bg-black/40 text-[var(--accent-core)] checked:bg-[var(--accent-core)] focus:ring-0 cursor-pointer flex-shrink-0" />
+              
+              <div class="w-16 h-16 rounded-xl overflow-hidden bg-black flex-shrink-0 border border-white/10">
                 <img :src="item.image" class="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-500 mix-blend-lighten" />
               </div>
-              <div class="flex-grow flex flex-col justify-between py-0.5">
+              
+              <div class="flex-grow flex flex-col justify-between py-0.5 min-w-0">
                 <div>
-                  <h4 class="text-sm font-black text-white line-clamp-1 group-hover:text-[var(--accent-core)] transition-colors">{{ item.title }}</h4>
+                  <h4 class="text-sm font-black text-white truncate group-hover:text-[var(--accent-core)] transition-colors">{{ item.title }}</h4>
                   <div class="text-xs text-[var(--text-muted)] font-bold mt-1">${{ item.price.toFixed(2) }}</div>
                 </div>
                 <div class="flex justify-between items-center mt-2">
                   <button @click="toggleWishlist(item)" class="text-[10px] font-black text-red-400 hover:text-red-300 cursor-pointer tracking-wider uppercase border-none bg-transparent p-0">Purge</button>
-                  <button @click="initiateManualCheckout(item)" class="text-[10px] font-black theme-accent-text uppercase cursor-pointer tracking-wider flex items-center gap-1 hover:translate-x-1 transition-transform border-none bg-transparent p-0">Deploy <i class="fa-solid fa-angle-right"></i></button>
                 </div>
               </div>
             </div>
           </div>
+
+          <div v-if="wishlist.length > 0" class="p-6 border-t border-white/10 bg-black/30 backdrop-blur-md">
+            <div class="flex justify-between items-center mb-4">
+              <span class="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Bundle Total</span>
+              <span class="theme-accent-text font-black text-xl">${{ selectedWishlistTotal.toFixed(2) }}</span>
+            </div>
+            <button @click="initiateBatchCheckout" :disabled="selectedWishlistIds.length === 0" class="w-full py-4 rounded-xl theme-accent-bg text-white font-black text-xs tracking-widest uppercase shadow-[0_0_20px_var(--accent-glow)] transition-all active:scale-[0.98] border-none disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer">
+              <i class="fa-solid fa-cart-shopping"></i> Checkout Selected ({{ selectedWishlistIds.length }})
+            </button>
+          </div>
         </div>
       </Transition>
+
       <Transition name="fade">
         <div v-if="isWishlistSidebarOpen" @click="isWishlistSidebarOpen = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"></div>
       </Transition>
@@ -434,7 +487,6 @@ const filteredProducts = computed(() => {
               </h3>
               <p class="text-xs font-semibold leading-relaxed max-w-xs">Engineered infrastructure helping student networks stay hyper-organized with premium asset packs.</p>
             </div>
-
             <div>
               <h4 class="text-[10px] font-black uppercase text-white tracking-widest mb-5 opacity-80">Store Mainframes</h4>
               <ul class="space-y-3 text-sm font-semibold">
@@ -443,10 +495,9 @@ const filteredProducts = computed(() => {
                 <li><a :href="channels.kofi" target="_blank" class="hover:text-white transition-all flex items-center gap-2.5 group"><i class="fa-solid fa-bolt text-xs group-hover:text-[var(--accent-core)] bg-white/5 p-1.5 rounded-md border border-white/10"></i> Ko-fi Direct Feed</a></li>
               </ul>
             </div>
-
             <div>
               <h4 class="text-[10px] font-black uppercase text-white tracking-widest mb-5 opacity-80">Signals Protocol</h4>
-              <button class="text-sm font-bold text-[var(--text-muted)] flex items-center gap-2 px-4 py-2.5">
+              <button class="text-sm font-bold text-[var(--text-muted)] flex items-center gap-2 px-4 py-2.5 border-none bg-transparent">
                 <i class="fa-solid fa-shield-halved text-xs"></i> Secure Protocols Active
               </button>
               <div class="mt-5 flex gap-3">
@@ -457,30 +508,8 @@ const filteredProducts = computed(() => {
           </div>
         </footer>
       </div>
-
     </div>
 
     <ToastNotification :show="toastState.show" :message="toastState.message" />
   </div>
 </template>
-
-<style>
-.complex-fade-in { animation: compileIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-@keyframes compileIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-.card-stagger-grid > * { opacity: 0; animation: compileIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.card-stagger-grid > *:nth-child(1) { animation-delay: 100ms; }
-.card-stagger-grid > *:nth-child(2) { animation-delay: 150ms; }
-.card-stagger-grid > *:nth-child(3) { animation-delay: 200ms; }
-.card-stagger-grid > *:nth-child(4) { animation-delay: 250ms; }
-.text-reveal { animation: spread 1.2s cubic-bezier(0.16, 1, 0.3, 1) cubic-bezier(0.25, 0.46, 0.45, 0.94); }
-.modal-zoom-enter-active { transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.modal-zoom-leave-active { transition: all 0.25s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
-.modal-zoom-enter-from { opacity: 0; transform: scale(0.94); }
-.modal-zoom-leave-to { opacity: 0; transform: scale(0.97); }
-.sidebar-slide-enter-active, .sidebar-slide-leave-active { transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
-.sidebar-slide-enter-from, .sidebar-slide-leave-to { transform: translateX(100%); }
-.fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-.animate-ping-once { animation: heartPing 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) 1; }
-@keyframes heartPing { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }
-</style>
