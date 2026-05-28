@@ -165,7 +165,7 @@ export const initialSocialLinks = {
   gumroad: "https://gumroad.com/burisdigi",
   raketph: "https://www.raket.ph/burisdigi2007",
   kofi: "https://ko-fi.com/buris15",
-  tiktok: "https://tiktok.com/@your-username",
+  tiktok: "https://www.tiktok.com/@wowi_ss",
   facebook: "https://www.facebook.com/adrian.lacsamana.2025"
 };
 
