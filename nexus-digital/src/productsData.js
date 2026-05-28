@@ -185,4 +185,3 @@ export const studentTestimonials = [
     icon: "fa-solid fa-camera-retro"
   }
 ];
-
