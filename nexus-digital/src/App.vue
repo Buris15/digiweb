@@ -20,9 +20,10 @@ const sortBy = ref("default");
 const isContactOpen = ref(false);
 const toastState = ref({ show: false, message: "" });
 
+
 // --- SECURE TRANSFER STATE (WEB3FORMS + IMGBB) ---
-const WEB3FORMS_KEY = "97d9635f-bbb3-42b2-b3ab-5674a76406cf";
-const IMGBB_API_KEY = "82aeed05375dfb93a39a58bbe0ed0f0c";
+const WEB3FORMS_KEY = import.meta.env.VITE_WEB3FORMS_KEY;
+const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY;
 
 const isCheckoutModalOpen = ref(false);
 const isSubmitting = ref(false);
@@ -116,6 +117,15 @@ const categories = [
   { id: "services", name: "Custom Services", icon: "fa-wand-magic-sparkles" },
 ];
 
+const copyData = async (text, type) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    triggerNotification(`${type} copied to your clipboard.`);
+  } catch (err) {
+    triggerNotification("System Error: Unable to copy data.");
+  }
+};
+
 const triggerNotification = (msg) => {
   toastState.value.message = msg;
   toastState.value.show = true;
@@ -153,6 +163,12 @@ const executeTransaction = async (event) => {
 
   if (!fileInput) {
     triggerNotification("System Error: Receipt image required.");
+    isSubmitting.value = false;
+    return;
+  }
+
+  if (fileInput.size > 5 * 1024 * 1024) { // 5MB limit
+    triggerNotification("System Error: Image exceeds 5MB limit. Please compress.");
     isSubmitting.value = false;
     return;
   }
@@ -590,12 +606,29 @@ const filteredProducts = computed(() => {
                 Transfer Destination
               </p>
               <div class="space-y-2 text-sm font-bold text-white">
-                <div class="flex justify-between items-center bg-black/60 px-4 py-2.5 rounded-lg border border-white/5">
+                
+                <div 
+                  @click="copyData('09123456789', 'GCash Number')"
+                  class="flex justify-between items-center bg-black/60 px-4 py-2.5 rounded-lg border border-white/5 hover:border-[#007CF8]/50 transition-colors cursor-pointer group"
+                >
                   <span class="text-[#007CF8] flex items-center gap-2"><i class="fa-solid fa-wallet"></i> GCash</span>
-                  <span class="tracking-wider">0912 345 6789</span> </div>
-                <div class="flex justify-between items-center bg-black/60 px-4 py-2.5 rounded-lg border border-white/5">
+                  <div class="flex items-center gap-2">
+                    <span class="tracking-wider group-hover:text-[#007CF8] transition-colors">0912 345 6789</span>
+                    <i class="fa-regular fa-copy text-[var(--text-muted)] group-hover:text-[#007CF8] transition-colors text-xs"></i>
+                  </div>
+                </div>
+
+                <div 
+                  @click="copyData('your@email.com', 'PayPal Address')"
+                  class="flex justify-between items-center bg-black/60 px-4 py-2.5 rounded-lg border border-white/5 hover:border-[#003087]/50 transition-colors cursor-pointer group"
+                >
                   <span class="text-[#003087] flex items-center gap-2"><i class="fa-brands fa-paypal"></i> PayPal</span>
-                  <span class="tracking-wider text-xs">your@email.com</span> </div>
+                  <div class="flex items-center gap-2">
+                    <span class="tracking-wider text-xs group-hover:text-[#003087] transition-colors">your@email.com</span>
+                    <i class="fa-regular fa-copy text-[var(--text-muted)] group-hover:text-[#003087] transition-colors text-xs"></i>
+                  </div>
+                </div>
+
               </div>
             </div>
 
