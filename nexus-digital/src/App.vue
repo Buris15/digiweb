@@ -148,6 +148,7 @@ const executeTransaction = async (event) => {
 
   const nameInput = form.name.value;
   const emailInput = form.email.value;
+  const facebookInput = form.facebook.value; // NEW: Capture Facebook data
   const fileInput = form.attachment.files[0];
 
   if (!fileInput) {
@@ -194,6 +195,7 @@ const executeTransaction = async (event) => {
     web3FormData.append("from_name", "Aesthetic Vault Store");
     web3FormData.append("Buyer_Name", nameInput);
     web3FormData.append("Buyer_Email", emailInput);
+    web3FormData.append("Buyer_Facebook", facebookInput);
     web3FormData.append("Requested_Asset", manifestTitles);
     web3FormData.append("Total_Price_Logged", aggregatePriceText);
     web3FormData.append("Receipt_Screenshot", receiptUrl);
@@ -579,9 +581,23 @@ const filteredProducts = computed(() => {
               <i class="fa-solid fa-money-bill-transfer text-lg"></i>
             </div>
 
-            <h3 class="text-xl font-black text-white mb-2 tracking-tight">
+            <h3 class="text-xl font-black text-white mb-4 tracking-tight">
               Manual Secure Transfer
             </h3>
+
+            <div class="bg-black/40 border border-[var(--accent-core)]/50 rounded-xl p-4 mb-5 shadow-[0_0_15px_rgba(0,153,255,0.1)]">
+              <p class="text-[10px] font-black text-[var(--accent-core)] uppercase tracking-widest mb-3 text-center">
+                Transfer Destination
+              </p>
+              <div class="space-y-2 text-sm font-bold text-white">
+                <div class="flex justify-between items-center bg-black/60 px-4 py-2.5 rounded-lg border border-white/5">
+                  <span class="text-[#007CF8] flex items-center gap-2"><i class="fa-solid fa-wallet"></i> GCash</span>
+                  <span class="tracking-wider">0912 345 6789</span> </div>
+                <div class="flex justify-between items-center bg-black/60 px-4 py-2.5 rounded-lg border border-white/5">
+                  <span class="text-[#003087] flex items-center gap-2"><i class="fa-brands fa-paypal"></i> PayPal</span>
+                  <span class="tracking-wider text-xs">your@email.com</span> </div>
+              </div>
+            </div>
 
             <div
               class="text-xs text-[var(--text-muted)] bg-black/30 border border-white/10 rounded-xl p-4 max-h-40 overflow-y-auto mb-6 space-y-2"
@@ -630,6 +646,7 @@ const filteredProducts = computed(() => {
                 placeholder="Identity Vector (Full Name)"
                 class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold"
               />
+              
               <input
                 name="email"
                 required
@@ -638,12 +655,20 @@ const filteredProducts = computed(() => {
                 class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold"
               />
 
+              <input
+                name="facebook"
+                required
+                type="text"
+                placeholder="Social Comm Link (Facebook Name / Profile URL)"
+                class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-[var(--accent-core)] placeholder:text-[var(--text-muted)] transition-all font-semibold"
+              />
+
               <div
                 class="bg-black/20 border border-white/10 rounded-xl p-4 transition-all focus-within:border-[var(--accent-core)]"
               >
                 <label
                   class="block text-[10px] font-black text-white uppercase tracking-widest mb-2 opacity-80"
-                  >Upload Transfer Receipt (GCash / Maya)</label
+                  >Upload Transfer Receipt (GCash / PayPal)</label
                 >
                 <input
                   name="attachment"
